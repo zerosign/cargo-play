@@ -1,3 +1,4 @@
+use std::convert::Infallible;
 use std::ffi::{OsStr, OsString};
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
@@ -7,10 +8,89 @@ use structopt::StructOpt;
 
 use crate::errors::CargoPlayError;
 
+#[derive(Debug, PartialEq)]
+pub enum Dependency {
+    Build(String),
+    Test(String),
+}
+
+impl FromStr for Dependency {
+    type Err = Infallible;
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        Ok(From::from(String::from(raw)))
+    }
+}
+
+impl From<String> for Dependency {
+    fn from(line: String) -> Self {
+        // check string "dev:" if first string not "dev:"
+        // then it should be build time dependency,
+        // however if dev: is not the first then return an error
+        // we don't need to check whether the next package definition are correct or not
+        // since it's already being checked by cargo itself
+        println!("line: {}", &line[0..4]);
+
+        match &line[0..4] {
+            "dev:" => Dependency::Test(line[4..].trim_start().into()),
+            _ => Dependency::Build(String::from(line)),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum RustEdition {
     E2015,
     E2018,
+}
+
+#[derive(StructOpt, Debug, PartialEq)]
+#[structopt(about = "cargo profile could be `release`, `debug` or `profile`")]
+pub enum CargoProfile {
+    Release,
+    Debug,
+    Profile,
+}
+
+impl FromStr for CargoProfile {
+    type Err = String;
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        match raw {
+            "release" => Ok(CargoProfile::Release),
+            "debug" => Ok(CargoProfile::Debug),
+            "profile" => Ok(CargoProfile::Profile),
+            _ => Err(String::from("Unknown profile")),
+        }
+    }
+}
+
+#[derive(StructOpt, Debug, PartialEq)]
+#[structopt(about = "cargo action, could be either `run` or `test`")]
+pub enum CargoAction {
+    // release or not
+    Run(CargoProfile),
+    Test,
+}
+
+impl FromStr for CargoAction {
+    type Err = String;
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        if raw.starts_with("run") {
+            Ok(CargoAction::Run(CargoProfile::from_str(&raw[4..])?))
+        } else if raw.starts_with("test") {
+            Ok(CargoAction::Test)
+        } else {
+            Err(format!("action {} are not supported", raw))
+        }
+    }
+}
+
+impl Default for CargoAction {
+    fn default() -> Self {
+        Self::Run(CargoProfile::Debug)
+    }
 }
 
 impl FromStr for RustEdition {
@@ -69,11 +149,11 @@ pub struct Opt {
     )]
     /// Specify Rust edition
     pub edition: RustEdition,
-    #[structopt(long = "release")]
-    /// Build program in release mode
-    pub release: bool,
     #[structopt(long = "cached", hidden = true)]
     pub cached: bool,
+    #[structopt(long = "cargo-action")]
+    /// Cargo action
+    pub cargo_action: Option<CargoAction>,
     #[structopt(long = "cargo-option")]
     /// Custom flags passing to cargo
     pub cargo_option: Option<String>,

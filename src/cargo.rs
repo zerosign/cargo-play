@@ -4,7 +4,7 @@ use serde::Serialize;
 use toml::value::{Table, Value};
 
 use crate::errors::CargoPlayError;
-use crate::opt::RustEdition;
+use crate::opt::{Dependency, RustEdition};
 
 #[derive(Clone, Debug, Serialize)]
 struct CargoPackage {
@@ -28,33 +28,53 @@ pub(crate) struct CargoManifest {
     package: CargoPackage,
     #[serde(serialize_with = "toml::ser::tables_last")]
     dependencies: Table,
+    #[serde(serialize_with = "toml::ser::tables_last")]
+    dev_dependencies: Table,
+}
+
+fn deserialize_deps<F>(deps: &Vec<Dependency>, filter: F) -> Result<Table, CargoPlayError>
+where
+    F: Fn(&Dependency) -> Option<String>,
+{
+    let dependencies = deps
+        .into_iter()
+        .filter_map(filter)
+        .map(|dep| dep.parse::<toml::Value>())
+        .collect::<Result<Vec<toml::Value>, _>>()
+        .map_err(CargoPlayError::from_serde)?;
+
+    if dependencies.iter().any(|d| !d.is_table()) {
+        return Err(CargoPlayError::ParseError("format error!".into()));
+    }
+
+    Ok(dependencies
+        .into_iter()
+        .map(|d| d.try_into::<Table>().unwrap().into_iter())
+        .flatten()
+        .collect())
 }
 
 impl CargoManifest {
     pub(crate) fn new(
         name: String,
-        dependencies: Vec<String>,
+        dependencies: Vec<Dependency>,
         edition: RustEdition,
     ) -> Result<Self, CargoPlayError> {
-        let dependencies = dependencies
-            .into_iter()
-            .map(|dependency| dependency.parse::<toml::Value>())
-            .collect::<Result<Vec<toml::Value>, _>>()
-            .map_err(CargoPlayError::from_serde)?;
-
-        if dependencies.iter().any(|d| !d.is_table()) {
-            return Err(CargoPlayError::ParseError("format error!".into()));
-        }
-
-        let dependencies: Table = dependencies
-            .into_iter()
-            .map(|d| d.try_into::<Table>().unwrap().into_iter())
-            .flatten()
-            .collect();
+        let (dependencies, dev_dependencies): (Table, Table) = (
+            deserialize_deps(&dependencies, |d| match d {
+                Dependency::Build(dep) => Some(dep.clone()),
+                _ => None,
+            })?,
+            deserialize_deps(&dependencies, |d| match d {
+                Dependency::Test(dep) => Some(dep.clone()),
+                _ => None,
+            })?,
+        );
 
         Ok(Self {
             package: CargoPackage::new(name, edition),
             dependencies,
+            dev_dependencies,
         })
     }
 

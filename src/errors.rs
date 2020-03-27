@@ -12,6 +12,12 @@ pub enum CargoPlayError {
     #[fail(display = "Unable to compute relative path of {:?}", _0)]
     DiffPathError(std::path::PathBuf),
 
+    #[fail(
+        display = "Unexpected cargo action {:?}. Currently support action : run/test",
+        _0
+    )]
+    InvalidCargoAction(String),
+
     #[fail(display = "Unexpected edition {:?}. Edition must be 2015/2018.", _0)]
     InvalidEdition(String),
 

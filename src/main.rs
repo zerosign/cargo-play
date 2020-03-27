@@ -10,7 +10,7 @@ use std::process::{Command, Stdio};
 use std::vec::Vec;
 
 use crate::errors::CargoPlayError;
-use crate::opt::Opt;
+use crate::opt::{CargoAction, CargoProfile, Dependency, Opt};
 use crate::steps::*;
 
 fn main() -> Result<(), CargoPlayError> {
@@ -26,11 +26,15 @@ fn main() -> Result<(), CargoPlayError> {
 
     if opt.cached && temp.exists() {
         let mut bin_path = temp.join("target");
-        if opt.release {
-            bin_path.push("release");
-        } else {
-            bin_path.push("debug");
+
+        match opt.cargo_action {
+            Some(CargoAction::Run(CargoProfile::Release)) => {
+                bin_path.push("release");
+            }
+            Some(CargoAction::Run(CargoProfile::Debug)) => bin_path.push("debug"),
+            _ => {}
         }
+
         // TODO reuse logic to formulate package name, i.e. to_lowercase
         bin_path.push(&src_hash.to_lowercase());
         if bin_path.exists() {
@@ -64,10 +68,10 @@ fn main() -> Result<(), CargoPlayError> {
     let end = if let Some(save) = opt.save {
         copy_project(&temp, &save)?
     } else {
-        run_cargo_build(
+        run_cargo_action(
             opt.toolchain,
             &temp,
-            opt.release,
+            opt.cargo_action.unwrap_or_default(),
             opt.cargo_option,
             &opt.args,
         )?
@@ -84,7 +88,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_extract_headers() {
+    fn test_extract_headers_dependencies_only() {
         let inputs: Vec<String> = vec![
             r#"//# line 1
 //# line 2
@@ -97,7 +101,26 @@ mod tests {
         let result = extract_headers(&inputs);
 
         assert_eq!(result.len(), 2);
-        assert_eq!(result[0], String::from("line 1"));
-        assert_eq!(result[1], String::from("line 2"));
+        assert_eq!(result[0], Dependency::from(String::from("line 1")));
+        assert_eq!(result[1], Dependency::from(String::from("line 2")));
+    }
+
+    #[test]
+    fn test_extract_headers_dev_dependencies_only() {
+        let inputs: Vec<String> = vec![
+            r#"//# dev: line 1
+//# dev: line 2
+// line 3
+//# dev: line 4"#,
+        ]
+        .into_iter()
+        .map(Into::into)
+        .collect();
+
+        let result = extract_headers(&inputs);
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], Dependency::from(String::from("line 1")));
+        assert_eq!(result[1], Dependency::from(String::from("line 2")));
     }
 }

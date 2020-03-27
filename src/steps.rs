@@ -12,7 +12,7 @@ use pathdiff::diff_paths;
 
 use crate::cargo::CargoManifest;
 use crate::errors::CargoPlayError;
-use crate::opt::RustEdition;
+use crate::opt::{CargoAction, CargoProfile, Dependency, RustEdition};
 
 pub fn parse_inputs(inputs: &[PathBuf]) -> Result<Vec<String>, CargoPlayError> {
     inputs
@@ -29,15 +29,20 @@ pub fn parse_inputs(inputs: &[PathBuf]) -> Result<Vec<String>, CargoPlayError> {
         .collect()
 }
 
-pub fn extract_headers(files: &[String]) -> Vec<String> {
+// TODO split this into dev-dependencies and dependencies
+// //# dev: criterion = "*"
+// //# dev: flate2 = {}
+// //# dev: tar = ""
+pub fn extract_headers(files: &[String]) -> Vec<Dependency> {
     files
         .iter()
-        .map(|file: &String| -> Vec<String> {
+        .map(|file: &String| -> Vec<Dependency> {
             file.lines()
                 .skip_while(|line| line.starts_with("#!") || line.is_empty())
                 .take_while(|line| line.starts_with("//#"))
                 .map(|line| line[3..].trim_start().into())
                 .filter(|s: &String| !s.is_empty())
+                .map(|s: String| Dependency::from(s))
                 .collect()
         })
         .flatten()
@@ -67,7 +72,7 @@ pub fn mktemp(temp: &PathBuf) {
 pub fn write_cargo_toml(
     dir: &PathBuf,
     name: String,
-    dependencies: Vec<String>,
+    dependencies: Vec<Dependency>,
     edition: RustEdition,
     infers: HashSet<String>,
 ) -> Result<(), CargoPlayError> {
@@ -118,10 +123,49 @@ pub fn copy_sources(temp: &PathBuf, sources: &[PathBuf]) -> Result<(), CargoPlay
     Ok(())
 }
 
+#[inline]
 pub fn run_cargo_build(
     toolchain: Option<String>,
     project: &PathBuf,
     release: bool,
+    cargo_option: Option<String>,
+    program_args: &[String],
+) -> Result<ExitStatus, CargoPlayError> {
+    let profile = if release {
+        CargoProfile::Release
+    } else {
+        CargoProfile::Debug
+    };
+
+    run_cargo_action(
+        toolchain,
+        project,
+        CargoAction::Run(profile),
+        cargo_option,
+        program_args,
+    )
+}
+
+#[inline]
+pub fn run_cargo_test(
+    toolchain: Option<String>,
+    project: &PathBuf,
+    cargo_option: Option<String>,
+    program_args: &[String],
+) -> Result<ExitStatus, CargoPlayError> {
+    run_cargo_action(
+        toolchain,
+        project,
+        CargoAction::Test,
+        cargo_option,
+        program_args,
+    )
+}
+
+pub fn run_cargo_action(
+    toolchain: Option<String>,
+    project: &PathBuf,
+    action: CargoAction,
     cargo_option: Option<String>,
     program_args: &[String],
 ) -> Result<ExitStatus, CargoPlayError> {
@@ -131,18 +175,24 @@ pub fn run_cargo_build(
         cargo.arg(format!("+{}", toolchain));
     }
 
-    cargo
-        .arg("run")
-        .arg("--manifest-path")
-        .arg(project.join("Cargo.toml"));
-
-    if let Some(cargo_option) = cargo_option {
-        // FIXME: proper escaping
-        cargo.args(cargo_option.split_ascii_whitespace());
+    match action {
+        CargoAction::Run(CargoProfile::Release) => {
+            cargo.arg("run").arg("--release");
+        }
+        CargoAction::Run(CargoProfile::Debug) => {
+            cargo.arg("run");
+        }
+        CargoAction::Test => {
+            cargo.arg("test");
+        }
+        // TODO : bench are unsupported for now
+        _ => {}
     }
 
-    if release {
-        cargo.arg("--release");
+    cargo.arg("--manifest-path").arg(project.join("Cargo.toml"));
+
+    if let Some(cargo_option) = cargo_option {
+        cargo.args(cargo_option.split_ascii_whitespace());
     }
 
     cargo
