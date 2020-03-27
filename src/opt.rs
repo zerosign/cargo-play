@@ -53,14 +53,14 @@ pub enum CargoProfile {
 }
 
 impl FromStr for CargoProfile {
-    type Err = String;
+    type Err = CargoPlayError;
 
     fn from_str(raw: &str) -> Result<Self, Self::Err> {
         match raw {
             "release" => Ok(CargoProfile::Release),
             "debug" => Ok(CargoProfile::Debug),
             "profile" => Ok(CargoProfile::Profile),
-            _ => Err(String::from("Unknown profile")),
+            _ => Err(Self::Err::InvalidCargoProfile(String::from(raw))),
         }
     }
 }
@@ -74,7 +74,7 @@ pub enum CargoAction {
 }
 
 impl FromStr for CargoAction {
-    type Err = String;
+    type Err = CargoPlayError;
 
     fn from_str(raw: &str) -> Result<Self, Self::Err> {
         if raw.starts_with("run") {
@@ -82,7 +82,7 @@ impl FromStr for CargoAction {
         } else if raw.starts_with("test") {
             Ok(CargoAction::Test)
         } else {
-            Err(format!("action {} are not supported", raw))
+            Err(Self::Err::InvalidCargoAction(String::from(raw)))
         }
     }
 }

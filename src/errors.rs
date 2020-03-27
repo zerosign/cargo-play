@@ -13,10 +13,16 @@ pub enum CargoPlayError {
     DiffPathError(std::path::PathBuf),
 
     #[fail(
-        display = "Unexpected cargo action {:?}. Currently support action : run/test",
+        display = "Unexpected cargo action {:?}. Currently support action: run/test",
         _0
     )]
     InvalidCargoAction(String),
+
+    #[fail(
+        display = "Unknown profile {:?}. Currently supports only: release, debug, profile",
+        _0
+    )]
+    InvalidCargoProfile(String),
 
     #[fail(display = "Unexpected edition {:?}. Edition must be 2015/2018.", _0)]
     InvalidEdition(String),
